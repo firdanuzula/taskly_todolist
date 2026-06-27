@@ -1,15 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
 const API = "http://localhost:5000/api";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-const token = () => localStorage.getItem("token");
-const authHeader = () => ({ Authorization: `Bearer ${token()}` });
+const token     = () => localStorage.getItem("token");
+const authHdr   = () => ({ Authorization: `Bearer ${token()}` });
 
 // ─── ICONS ──────────────────────────────────────────────────────────────────
-const Icon = ({ d, size = 20, color = "currentColor", ...p }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+const Icon = ({ d, size = 20, color = "currentColor", fill = "none", ...p }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
     stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...p}>
     <path d={d} />
   </svg>
@@ -26,27 +25,49 @@ const LockIcon     = (p) => <Icon d="M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 
 const MailIcon     = (p) => <Icon d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6" {...p} />;
 const TaskIcon     = (p) => <Icon d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" {...p} />;
 const EmptyIcon    = (p) => <Icon d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" {...p} />;
+const SearchIcon   = (p) => <Icon d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" {...p} />;
+const SortIcon     = (p) => <Icon d="M3 6h18M7 12h10M11 18h2" {...p} />;
+const CalendarIcon = (p) => <Icon d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" {...p} />;
+const FlagIcon     = (p) => <Icon d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" {...p} />;
+const ChevronIcon  = (p) => <Icon d="M6 9l6 6 6-6" {...p} />;
 
-// ─── CSS VARIABLES ──────────────────────────────────────────────────────────
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+const today    = () => new Date().toISOString().split("T")[0];
+const isOverdue = (due) => due && due < today() ;
+
+const formatDate = (s) => {
+  if (!s) return "";
+  const d = new Date(s + "T00:00:00");
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+};
+
+const PRIORITY_META = {
+  high:   { label: "Tinggi",  color: "#ef4444", bg: "rgba(239,68,68,.12)"   },
+  medium: { label: "Sedang",  color: "#f59e0b", bg: "rgba(245,158,11,.12)"  },
+  low:    { label: "Rendah",  color: "#22c55e", bg: "rgba(34,197,94,.12)"   },
+};
+
+// ─── GLOBAL STYLES ──────────────────────────────────────────────────────────
 const GlobalStyles = () => (
   <style>{`
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:         #0f1117;
-      --surface:    #1a1d27;
-      --surface2:   #222534;
-      --border:     #2e3247;
-      --accent:     #6366f1;
-      --accent-dim: #4f52cc;
-      --accent-glow: rgba(99,102,241,.15);
-      --green:      #22c55e;
-      --red:        #ef4444;
-      --amber:      #f59e0b;
-      --text:       #e8eaf0;
-      --muted:      #7c8098;
-      --radius:     12px;
-      --shadow:     0 4px 24px rgba(0,0,0,.4);
+      --bg:           #0f1117;
+      --surface:      #1a1d27;
+      --surface2:     #222534;
+      --surface3:     #282b3e;
+      --border:       #2e3247;
+      --accent:       #6366f1;
+      --accent-dim:   #4f52cc;
+      --accent-glow:  rgba(99,102,241,.15);
+      --green:        #22c55e;
+      --red:          #ef4444;
+      --amber:        #f59e0b;
+      --text:         #e8eaf0;
+      --muted:        #7c8098;
+      --radius:       12px;
+      --shadow:       0 4px 24px rgba(0,0,0,.4);
     }
 
     html { font-size: 16px; }
@@ -58,761 +79,615 @@ const GlobalStyles = () => (
       min-height: 100vh;
     }
 
-    /* scrollbar */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-    /* selection */
     ::selection { background: var(--accent); color: #fff; }
 
-    /* auth page */
+    /* ── Auth ── */
     .auth-bg {
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       padding: 24px;
       background:
         radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,.18) 0%, transparent 60%),
         var(--bg);
     }
-
     .auth-card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 20px;
       padding: 44px 40px;
-      width: 100%;
-      max-width: 420px;
+      width: 100%; max-width: 420px;
       box-shadow: var(--shadow), 0 0 60px rgba(99,102,241,.06);
     }
-
     .auth-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      display: flex; align-items: center; gap: 10px;
       margin-bottom: 32px;
     }
-
     .auth-logo-icon {
       width: 40px; height: 40px;
       background: var(--accent);
       border-radius: 10px;
       display: flex; align-items: center; justify-content: center;
     }
-
-    .auth-logo-text {
-      font-size: 1.25rem;
-      font-weight: 700;
-      letter-spacing: -.02em;
-      color: var(--text);
-    }
-
-    .auth-heading {
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -.03em;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-
-    .auth-subtext {
-      color: var(--muted);
-      font-size: .9rem;
-      margin-bottom: 32px;
-    }
-
-    .tab-row {
-      display: flex;
+    .auth-logo-text { font-size: 22px; font-weight: 700; }
+    .auth-tabs {
+      display: flex; gap: 4px;
       background: var(--surface2);
-      border-radius: 10px;
-      padding: 4px;
+      border-radius: 10px; padding: 4px;
       margin-bottom: 28px;
     }
-
-    .tab-btn {
-      flex: 1;
-      padding: 9px 0;
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      border-radius: 8px;
-      font-size: .9rem;
-      font-weight: 500;
-      cursor: pointer;
+    .auth-tab {
+      flex: 1; padding: 8px; border: none; cursor: pointer;
+      border-radius: 7px; font-size: 14px; font-weight: 500;
+      background: transparent; color: var(--muted);
       transition: all .2s;
     }
+    .auth-tab.active { background: var(--accent); color: #fff; }
 
-    .tab-btn.active {
-      background: var(--accent);
-      color: #fff;
-      box-shadow: 0 2px 12px rgba(99,102,241,.4);
+    .field-group { display: flex; flex-direction: column; gap: 16px; }
+    .field-label { font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+    .field-wrap { position: relative; }
+    .field-icon {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      color: var(--muted); pointer-events: none;
     }
-
-    .field {
-      margin-bottom: 18px;
+    .field-input {
+      width: 100%; padding: 12px 14px 12px 42px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s, box-shadow .2s;
     }
-
-    .field label {
-      display: block;
-      font-size: .82rem;
-      font-weight: 600;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    .input-wrap {
-      position: relative;
-    }
-
-    .input-icon {
-      position: absolute;
-      left: 14px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--muted);
-      pointer-events: none;
-    }
-
-    .input-wrap input {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px 14px 12px 42px;
-      color: var(--text);
-      font-size: .95rem;
-      outline: none;
-      transition: border-color .2s, box-shadow .2s;
-    }
-
-    .input-wrap input:focus {
+    .field-input:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-glow);
     }
-
-    .input-wrap input::placeholder { color: var(--muted); opacity: .7; }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 10px;
-      font-size: .95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all .2s;
-      white-space: nowrap;
-    }
-
     .btn-primary {
-      background: var(--accent);
-      color: #fff;
-      width: 100%;
-      justify-content: center;
-      box-shadow: 0 4px 16px rgba(99,102,241,.3);
+      width: 100%; padding: 13px;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      margin-top: 24px;
+      transition: background .2s, transform .1s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary:hover { background: var(--accent-dim); }
+    .btn-primary:active { transform: scale(.98); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    .auth-error {
+      background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+      color: #fca5a5; border-radius: 8px; padding: 10px 14px;
+      font-size: 13px; margin-bottom: 16px;
     }
 
-    .btn-primary:hover { background: var(--accent-dim); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,.4); }
-    .btn-primary:active { transform: translateY(0); }
-    .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-
-    .btn-ghost {
-      background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
-    }
-
-    .btn-ghost:hover { color: var(--text); border-color: var(--muted); background: var(--surface2); }
-
-    .btn-icon {
-      padding: 8px;
-      background: transparent;
-      border: 1px solid transparent;
-      border-radius: 8px;
-      color: var(--muted);
-      cursor: pointer;
-      transition: all .2s;
-      display: flex; align-items: center;
-    }
-
-    .btn-icon:hover { background: var(--surface2); border-color: var(--border); color: var(--text); }
-    .btn-icon.danger:hover { color: var(--red); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.08); }
-    .btn-icon.edit:hover { color: var(--accent); border-color: rgba(99,102,241,.3); background: var(--accent-glow); }
-
-    .alert {
-      padding: 12px 16px;
-      border-radius: 10px;
-      font-size: .9rem;
-      margin-bottom: 18px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
-    .alert-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); color: #86efac; }
-
-    /* ── MAIN APP ── */
-    .app-layout {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
+    /* ── Layout ── */
+    .app-layout { min-height: 100vh; display: flex; flex-direction: column; }
 
     .topbar {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(26,29,39,.85);
-      backdrop-filter: blur(16px);
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(15,17,23,.8);
+      backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
       padding: 0 24px;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
     }
-
     .topbar-logo {
       display: flex; align-items: center; gap: 10px;
-      font-size: 1.1rem; font-weight: 700; letter-spacing: -.02em;
-      text-decoration: none; color: var(--text);
+      font-size: 18px; font-weight: 700;
     }
-
     .topbar-logo-icon {
-      width: 32px; height: 32px;
-      background: var(--accent);
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; background: var(--accent);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
     }
-
-    .topbar-right {
-      display: flex; align-items: center; gap: 12px;
-    }
-
-    .topbar-user {
-      font-size: .85rem;
-      color: var(--muted);
-    }
-
-    .topbar-user strong { color: var(--text); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .topbar-user { font-size: 14px; color: var(--muted); }
 
     .main-content {
-      flex: 1;
-      max-width: 800px;
-      width: 100%;
-      margin: 0 auto;
-      padding: 40px 24px;
+      flex: 1; max-width: 800px; width: 100%;
+      margin: 0 auto; padding: 32px 24px 64px;
     }
 
-    .page-header {
-      margin-bottom: 32px;
+    /* ── Page header ── */
+    .page-header { margin-bottom: 28px; }
+    .page-title { font-size: 26px; font-weight: 700; }
+    .page-subtitle { color: var(--muted); font-size: 14px; margin-top: 4px; }
+    .progress-wrap {
+      height: 6px; background: var(--surface2);
+      border-radius: 99px; overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; background: linear-gradient(90deg, var(--accent), #a78bfa);
+      border-radius: 99px;
+      transition: width .5s ease;
     }
 
-    .page-title {
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -.03em;
-      margin-bottom: 4px;
-    }
-
-    .page-subtitle {
-      color: var(--muted);
-      font-size: .9rem;
-    }
-
-    /* stats row */
+    /* ── Stats ── */
     .stats-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin-bottom: 28px;
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 12px; margin-bottom: 24px;
     }
-
     .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
       text-align: center;
     }
+    .stat-number { font-size: 28px; font-weight: 700; }
+    .stat-number.total  { color: var(--accent); }
+    .stat-number.done   { color: var(--green); }
+    .stat-number.todo   { color: var(--amber); }
+    .stat-number.overdue { color: var(--red); }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
-    .stat-number {
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -.04em;
+    /* ── Toolbar (search + sort) ── */
+    .toolbar {
+      display: flex; gap: 10px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
     }
-
-    .stat-number.total { color: var(--text); }
-    .stat-number.done  { color: var(--green); }
-    .stat-number.todo  { color: var(--accent); }
-
-    .stat-label {
-      font-size: .78rem;
-      color: var(--muted);
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: .05em;
-      margin-top: 2px;
+    .search-wrap {
+      position: relative; flex: 1; min-width: 180px;
     }
+    .search-icon {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--muted); pointer-events: none;
+    }
+    .search-input {
+      width: 100%; padding: 9px 12px 9px 38px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    .search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .sort-select {
+      padding: 9px 32px 9px 12px;
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c8098' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat calc(100% - 10px) center;
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 14px; outline: none;
+      cursor: pointer; appearance: none;
+      transition: border-color .2s;
+    }
+    .sort-select:focus { border-color: var(--accent); }
 
-    /* add task form */
+    .order-btn {
+      padding: 9px 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--muted); cursor: pointer;
+      font-size: 13px; font-weight: 500;
+      transition: all .2s; white-space: nowrap;
+    }
+    .order-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    /* ── Add form ── */
     .add-form {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-      margin-bottom: 24px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+      margin-bottom: 20px;
     }
-
     .add-form-row {
-      display: flex;
-      gap: 10px;
+      display: flex; gap: 10px; align-items: center; margin-bottom: 10px;
     }
-
     .task-input {
-      flex: 1;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px 16px;
-      color: var(--text);
-      font-size: .95rem;
-      outline: none;
-      transition: border-color .2s, box-shadow .2s;
+      flex: 1; padding: 10px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s, box-shadow .2s;
     }
-
     .task-input:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-glow);
     }
-
-    .task-input::placeholder { color: var(--muted); opacity: .7; }
-
     .task-input-desc {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 16px;
-      color: var(--text);
-      font-size: .9rem;
-      outline: none;
-      resize: none;
-      font-family: inherit;
-      margin-top: 10px;
-      transition: border-color .2s, box-shadow .2s;
+      width: 100%; padding: 10px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 13px;
+      outline: none; resize: vertical; font-family: inherit;
+      transition: border-color .2s;
     }
-
     .task-input-desc:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-glow);
     }
 
-    .task-input-desc::placeholder { color: var(--muted); opacity: .7; }
+    /* ── Add form extras row ── */
+    .add-extras {
+      display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;
+    }
+    .extra-field {
+      display: flex; flex-direction: column; gap: 4px;
+      flex: 1; min-width: 140px;
+    }
+    .extra-label {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .extra-input {
+      padding: 8px 12px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px;
+      outline: none; width: 100%;
+      transition: border-color .2s;
+    }
+    .extra-input:focus { border-color: var(--accent); }
+    .extra-select {
+      padding: 8px 28px 8px 12px;
+      background: var(--surface2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c8098' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat calc(100% - 8px) center;
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 13px; outline: none;
+      appearance: none; cursor: pointer; width: 100%;
+      transition: border-color .2s;
+    }
+    .extra-select:focus { border-color: var(--accent); }
 
-    /* filters */
+    .btn {
+      padding: 10px 18px;
+      border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: background .2s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-accent {
+      background: var(--accent); color: #fff;
+      white-space: nowrap;
+    }
+    .btn-accent:hover:not(:disabled) { background: var(--accent-dim); }
+
+    /* ── Filters ── */
     .filter-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
+      display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
     }
-
     .filter-btn {
-      padding: 6px 16px;
-      border-radius: 20px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--muted);
-      font-size: .85rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all .2s;
+      padding: 7px 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 99px; color: var(--muted); font-size: 13px;
+      cursor: pointer; transition: all .2s;
     }
+    .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+    .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-    .filter-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
-
-    .filter-btn:not(.active):hover {
-      border-color: var(--muted);
-      color: var(--text);
-    }
-
-    /* task list */
-    .task-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+    /* ── Task list ── */
+    .task-list { display: flex; flex-direction: column; gap: 10px; }
 
     .task-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px 20px;
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      transition: border-color .2s, transform .15s;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px;
+      display: flex; align-items: flex-start; gap: 14px;
+      transition: border-color .2s, box-shadow .2s;
     }
-
-    .task-card:hover { border-color: var(--accent); transform: translateY(-1px); }
-    .task-card.done { opacity: .6; }
-    .task-card.done .task-title { text-decoration: line-through; color: var(--muted); }
+    .task-card:hover {
+      border-color: var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,.2);
+    }
+    .task-card.done { opacity: .65; }
+    .task-card.priority-high  { border-left: 3px solid #ef4444; }
+    .task-card.priority-medium{ border-left: 3px solid #f59e0b; }
+    .task-card.priority-low   { border-left: 3px solid #22c55e; }
 
     .task-check {
-      flex-shrink: 0;
-      margin-top: 2px;
-      width: 22px; height: 22px;
-      border-radius: 50%;
-      border: 2px solid var(--border);
+      width: 22px; height: 22px; min-width: 22px;
+      border: 2px solid var(--border); border-radius: 50%;
+      background: transparent; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      cursor: pointer;
+      margin-top: 1px;
       transition: all .2s;
-      background: transparent;
     }
-
-    .task-check:hover { border-color: var(--green); }
+    .task-check:hover { border-color: var(--accent); }
     .task-check.checked { background: var(--green); border-color: var(--green); }
 
     .task-body { flex: 1; min-width: 0; }
-
     .task-title {
-      font-size: .97rem;
-      font-weight: 500;
-      color: var(--text);
-      line-height: 1.4;
-      word-break: break-word;
+      font-size: 15px; font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-
+    .task-card.done .task-title {
+      text-decoration: line-through; color: var(--muted);
+    }
     .task-desc {
-      font-size: .83rem;
-      color: var(--muted);
-      margin-top: 4px;
-      line-height: 1.5;
-      word-break: break-word;
+      font-size: 13px; color: var(--muted); margin-top: 3px;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
     }
-
     .task-meta {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 8px;
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; flex-wrap: wrap;
     }
-
     .task-badge {
-      font-size: .72rem;
-      font-weight: 600;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-      padding: 2px 8px;
-      border-radius: 20px;
+      font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: 99px;
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .task-badge.done    { background: rgba(34,197,94,.12); color: #22c55e; }
+    .task-badge.pending { background: rgba(245,158,11,.12); color: #f59e0b; }
+
+    .priority-badge {
+      font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: 99px;
+      display: flex; align-items: center; gap: 4px;
     }
 
-    .task-badge.done { background: rgba(34,197,94,.15); color: var(--green); }
-    .task-badge.pending { background: rgba(99,102,241,.15); color: var(--accent); }
-
-    .task-date {
-      font-size: .78rem;
-      color: var(--muted);
+    .due-badge {
+      font-size: 11px; font-weight: 500;
+      padding: 2px 8px; border-radius: 99px;
+      display: flex; align-items: center; gap: 4px;
     }
+    .due-badge.normal  { background: rgba(99,102,241,.12); color: #818cf8; }
+    .due-badge.overdue { background: rgba(239,68,68,.12);  color: #f87171; }
+    .due-badge.today   { background: rgba(245,158,11,.12); color: #fbbf24; }
+    .task-date { font-size: 11px; color: var(--muted); }
 
     .task-actions {
-      display: flex;
-      gap: 4px;
-      flex-shrink: 0;
+      display: flex; align-items: center; gap: 4px;
+      opacity: 0; transition: opacity .2s;
     }
+    .task-card:hover .task-actions { opacity: 1; }
 
-    /* empty state */
+    .btn-icon {
+      width: 32px; height: 32px;
+      border: none; background: transparent; cursor: pointer;
+      border-radius: 8px; color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      transition: all .2s;
+    }
+    .btn-icon:hover { background: var(--surface2); color: var(--text); }
+    .btn-icon.edit:hover  { color: var(--accent); }
+    .btn-icon.danger:hover { color: var(--red); }
+
+    /* ── Empty state ── */
     .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: var(--muted);
+      text-align: center; padding: 60px 0;
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
     }
-
     .empty-icon-wrap {
-      width: 64px; height: 64px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
+      width: 64px; height: 64px; border-radius: 20px;
+      background: var(--surface); border: 1px solid var(--border);
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 16px;
     }
+    .empty-title { font-size: 16px; font-weight: 600; }
+    .empty-text  { font-size: 13px; color: var(--muted); }
 
-    .empty-title {
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-
-    .empty-text {
-      font-size: .875rem;
-    }
-
-    /* EDIT MODAL */
+    /* ── Modal ── */
     .modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,.65);
-      backdrop-filter: blur(4px);
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
       display: flex; align-items: center; justify-content: center;
-      z-index: 200;
       padding: 24px;
-      animation: fadeIn .15s ease;
     }
-
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-
     .modal-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 32px;
-      width: 100%;
-      max-width: 480px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 32px;
+      width: 100%; max-width: 480px;
       box-shadow: var(--shadow);
-      animation: slideUp .2s ease;
+      animation: modalIn .2s ease;
     }
-
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(12px) scale(.97); }
+      to   { opacity: 1; transform: none; }
+    }
     .modal-header {
-      display: flex; align-items: center; justify-content: space-between;
+      display: flex; justify-content: space-between; align-items: center;
       margin-bottom: 24px;
     }
-
-    .modal-title {
-      font-size: 1.2rem;
-      font-weight: 700;
-      letter-spacing: -.02em;
+    .modal-title { font-size: 18px; font-weight: 700; }
+    .modal-fields { display: flex; flex-direction: column; gap: 14px; }
+    .modal-input {
+      width: 100%; padding: 11px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s;
     }
-
-    .modal-body { display: flex; flex-direction: column; gap: 14px; }
-
-    .modal-field label {
-      display: block;
-      font-size: .8rem;
-      font-weight: 600;
-      letter-spacing: .05em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 7px;
+    .modal-input:focus { border-color: var(--accent); }
+    .modal-textarea {
+      width: 100%; padding: 11px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 13px;
+      outline: none; resize: vertical; font-family: inherit;
+      transition: border-color .2s;
     }
-
-    .modal-field input,
-    .modal-field textarea {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px 14px;
-      color: var(--text);
-      font-size: .93rem;
-      outline: none;
-      font-family: inherit;
-      transition: border-color .2s, box-shadow .2s;
+    .modal-textarea:focus { border-color: var(--accent); }
+    .modal-row { display: flex; gap: 12px; }
+    .modal-select {
+      flex: 1; padding: 11px 28px 11px 14px;
+      background: var(--surface2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c8098' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat calc(100% - 10px) center;
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 14px; outline: none;
+      appearance: none; cursor: pointer;
+      transition: border-color .2s;
     }
-
-    .modal-field textarea {
-      resize: vertical; min-height: 90px;
+    .modal-select:focus { border-color: var(--accent); }
+    .modal-date {
+      flex: 1; padding: 11px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s;
+      color-scheme: dark;
     }
-
-    .modal-field input:focus,
-    .modal-field textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-
-    .modal-field input::placeholder,
-    .modal-field textarea::placeholder { color: var(--muted); opacity: .7; }
-
-    .modal-status-row {
-      display: flex; gap: 10px;
-    }
-
-    .status-option {
-      flex: 1;
-      padding: 10px;
-      border: 2px solid var(--border);
-      border-radius: 10px;
-      background: transparent;
-      cursor: pointer;
-      transition: all .2s;
-      text-align: center;
-    }
-
-    .status-option.sel-todo { border-color: var(--accent); background: var(--accent-glow); color: var(--accent); font-weight: 600; font-size: .88rem; }
-    .status-option.sel-done { border-color: var(--green); background: rgba(34,197,94,.1); color: var(--green); font-weight: 600; font-size: .88rem; }
-    .status-option:not(.sel-todo):not(.sel-done) { color: var(--muted); font-size: .88rem; }
-    .status-option:hover:not(.sel-todo):not(.sel-done) { border-color: var(--muted); color: var(--text); }
-
+    .modal-date:focus { border-color: var(--accent); }
     .modal-footer {
-      display: flex; gap: 10px; justify-content: flex-end;
+      display: flex; justify-content: flex-end; gap: 10px;
       margin-top: 24px;
     }
-
-    /* loading */
-    .spinner {
-      width: 18px; height: 18px;
-      border: 2px solid rgba(255,255,255,.3);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-      display: inline-block;
+    .btn-ghost {
+      padding: 10px 18px;
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 10px; color: var(--muted); font-size: 14px;
+      cursor: pointer; transition: all .2s;
     }
+    .btn-ghost:hover { border-color: var(--text); color: var(--text); }
 
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 28px; right: 28px; z-index: 200;
+      padding: 12px 20px; border-radius: 12px;
+      font-size: 14px; font-weight: 500;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      animation: toastIn .25s ease;
+      display: flex; align-items: center; gap: 10px;
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: none; }
+    }
+    .toast.success { background: #14532d; color: #86efac; border: 1px solid #166534; }
+    .toast.error   { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* progress bar */
-    .progress-wrap {
-      background: var(--surface2);
-      border-radius: 99px;
-      height: 4px;
-      overflow: hidden;
-      margin-top: 8px;
-    }
-
-    .progress-bar {
-      height: 100%;
-      background: linear-gradient(90deg, var(--accent), var(--green));
-      border-radius: 99px;
-      transition: width .4s ease;
-    }
-
-    /* toast */
-    .toast {
-      position: fixed;
-      bottom: 24px; right: 24px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px 20px;
-      font-size: .9rem;
-      font-weight: 500;
-      box-shadow: var(--shadow);
-      z-index: 999;
-      animation: slideUp .25s ease;
-      display: flex; align-items: center; gap: 10px;
-      max-width: 320px;
-    }
-
-    .toast.success { border-left: 3px solid var(--green); }
-    .toast.error   { border-left: 3px solid var(--red); }
-
-    @media (max-width: 500px) {
+    @media (max-width: 640px) {
+      .main-content { padding: 20px 16px 48px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .modal-card { padding: 24px 20px; }
       .auth-card { padding: 32px 24px; }
-      .stats-row { grid-template-columns: repeat(3, 1fr); gap: 8px; }
-      .stat-card { padding: 12px; }
-      .stat-number { font-size: 1.4rem; }
+      .modal-row { flex-direction: column; }
+      .add-extras { flex-direction: column; }
       .topbar { padding: 0 16px; }
-      .main-content { padding: 24px 16px; }
-      .add-form-row { flex-direction: column; }
     }
   `}</style>
 );
 
 // ─── TOAST ──────────────────────────────────────────────────────────────────
 function Toast({ msg, type }) {
-  if (!msg) return null;
   return (
     <div className={`toast ${type}`}>
-      {type === "success" ? <CheckIcon size={16} color="var(--green)" /> : null}
+      <span>{type === "success" ? "✓" : "✕"}</span>
       {msg}
     </div>
   );
 }
 
+// ─── DUE DATE BADGE ─────────────────────────────────────────────────────────
+function DueBadge({ due }) {
+  if (!due) return null;
+  const t = today();
+  const cls = due < t ? "overdue" : due === t ? "today" : "normal";
+  const label = due < t ? "Terlambat" : due === t ? "Hari ini" : formatDate(due);
+  return (
+    <span className={`due-badge ${cls}`}>
+      <CalendarIcon size={10} />
+      {label}
+    </span>
+  );
+}
+
+// ─── PRIORITY BADGE ─────────────────────────────────────────────────────────
+function PriorityBadge({ priority }) {
+  if (!priority) return null;
+  const m = PRIORITY_META[priority];
+  return (
+    <span className="priority-badge" style={{ background: m.bg, color: m.color }}>
+      <FlagIcon size={10} />
+      {m.label}
+    </span>
+  );
+}
+
 // ─── EDIT MODAL ─────────────────────────────────────────────────────────────
 function EditModal({ task, onClose, onSave }) {
-  const [title, setTitle] = useState(task.title || "");
-  const [description, setDescription] = useState(task.description || "");
-  const [status, setStatus] = useState(task.status || "pending");
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
+  const [title,    setTitle]    = useState(task.title);
+  const [desc,     setDesc]     = useState(task.description || "");
+  const [status,   setStatus]   = useState(task.status);
+  const [dueDate,  setDueDate]  = useState(task.due_date ? task.due_date.split("T")[0] : "");
+  const [priority, setPriority] = useState(task.priority || "medium");
+  const [saving,   setSaving]   = useState(false);
+  const [err,      setErr]      = useState("");
+
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onClose]);
 
   const handleSave = async () => {
-    if (!title.trim()) { setErr("Title is required."); return; }
+    if (!title.trim()) { setErr("Judul tidak boleh kosong."); return; }
     setSaving(true);
-    setErr("");
     try {
-      await axios.put(`${API}/tasks/${task.id}`,
-        { title: title.trim(), description: description.trim(), status },
-        { headers: authHeader() }
+      const { data } = await axios.put(`${API}/tasks/${task.id}`,
+        { title: title.trim(), description: desc.trim(), status, due_date: dueDate || null, priority },
+        { headers: authHdr() }
       );
-      onSave({ ...task, title: title.trim(), description: description.trim(), status });
-    } catch (e) {
-      setErr(e.response?.data?.message || "Failed to save.");
+      onSave(data);
+    } catch {
+      setErr("Gagal menyimpan. Coba lagi.");
     } finally {
       setSaving(false);
     }
   };
 
-  // close on ESC
-  useEffect(() => {
-    const h = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
-
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card">
         <div className="modal-header">
-          <span className="modal-title">Edit Task</span>
+          <h2 className="modal-title">Edit Task</h2>
           <button className="btn-icon" onClick={onClose}><CloseIcon size={18} /></button>
         </div>
 
-        <div className="modal-body">
-          {err && <div className="alert alert-error">{err}</div>}
+        {err && <div className="auth-error" style={{marginBottom:12}}>{err}</div>}
 
-          <div className="modal-field">
-            <label>Task title</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs to be done?"
-              autoFocus
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-            />
-          </div>
+        <div className="modal-fields">
+          <input
+            className="modal-input"
+            placeholder="Judul task"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            autoFocus
+          />
+          <textarea
+            className="modal-textarea"
+            placeholder="Deskripsi (opsional)"
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            rows={3}
+          />
 
-          <div className="modal-field">
-            <label>Description <span style={{fontWeight:400,textTransform:"none",color:"var(--muted)"}}>(optional)</span></label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add more details..."
-              rows={3}
-            />
-          </div>
-
-          <div className="modal-field">
-            <label>Status</label>
-            <div className="modal-status-row">
-              <button
-                className={`status-option ${status === "pending" ? "sel-todo" : ""}`}
-                onClick={() => setStatus("pending")}
-              >In Progress</button>
-              <button
-                className={`status-option ${status === "completed" ? "sel-done" : ""}`}
-                onClick={() => setStatus("completed")}
-              >Completed</button>
+          <div className="modal-row">
+            {/* Priority */}
+            <div style={{flex:1, display:"flex", flexDirection:"column", gap:4}}>
+              <span className="extra-label">Prioritas</span>
+              <select className="modal-select" value={priority} onChange={e => setPriority(e.target.value)}>
+                <option value="high">🔴 Tinggi</option>
+                <option value="medium">🟡 Sedang</option>
+                <option value="low">🟢 Rendah</option>
+              </select>
             </div>
+
+            {/* Status */}
+            <div style={{flex:1, display:"flex", flexDirection:"column", gap:4}}>
+              <span className="extra-label">Status</span>
+              <select className="modal-select" value={status} onChange={e => setStatus(e.target.value)}>
+                <option value="pending">In Progress</option>
+                <option value="completed">Selesai</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Due date */}
+          <div style={{display:"flex", flexDirection:"column", gap:4}}>
+            <span className="extra-label">Tenggat Waktu</span>
+            <input
+              type="date"
+              className="modal-date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+            />
           </div>
         </div>
 
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{width:"auto"}}>
+          <button className="btn-ghost" onClick={onClose}>Batal</button>
+          <button className="btn btn-accent" onClick={handleSave} disabled={saving}>
             {saving ? <span className="spinner" /> : <SaveIcon size={16} />}
-            {saving ? "Saving…" : "Save changes"}
+            Simpan
           </button>
         </div>
       </div>
@@ -822,108 +697,105 @@ function EditModal({ task, onClose, onSave }) {
 
 // ─── AUTH PAGE ───────────────────────────────────────────────────────────────
 function AuthPage({ onLogin }) {
-  const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [tab,      setTab]      = useState("login");
   const [username, setUsername] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-  const [msg, setMsg] = useState("");
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
 
   const submit = async () => {
-    setErr(""); setMsg("");
-    if (!email || !password) { setErr("Please fill all fields."); return; }
-    if (mode === "register" && !username.trim()) { setErr("Username is required."); return; }
+    setError("");
+    if (!email || !password) { setError("Email dan password wajib diisi."); return; }
+    if (tab === "register" && !username) { setError("Nama wajib diisi."); return; }
     setLoading(true);
     try {
-      const url = `${API}/auth/${mode}`;
-      const body = mode === "login"
-        ? { email, password }
-        : { username, email, password };
-      const { data } = await axios.post(url, body);
-      if (mode === "register") {
-        setMsg("Account created! Please sign in.");
-        setMode("login");
-        setPassword("");
-      } else {
-        localStorage.setItem("token", data.token);
-        onLogin(data.user);
+      if (tab === "register") {
+        await axios.post(`${API}/auth/register`, { username, email, password });
+        setTab("login"); setUsername(""); setPassword(""); setError("");
+        return;
       }
+      const { data } = await axios.post(`${API}/auth/login`, { email, password });
+      localStorage.setItem("token", data.token);
+      onLogin(data.user);
     } catch (e) {
-      setErr(e.response?.data?.message || "Something went wrong.");
+      setError(e.response?.data?.message || "Terjadi kesalahan.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <>
+    <div className="auth-bg">
       <GlobalStyles />
-      <div className="auth-bg">
-        <div className="auth-card">
-          <div className="auth-logo">
-            <div className="auth-logo-icon">
-              <TaskIcon size={20} color="#fff" />
-            </div>
-            <span className="auth-logo-text">Taskly</span>
-          </div>
+      <div className="auth-card">
+        <div className="auth-logo">
+          <div className="auth-logo-icon"><TaskIcon size={20} color="#fff" /></div>
+          <span className="auth-logo-text">Taskly</span>
+        </div>
 
-          <div className="tab-row">
-            <button className={`tab-btn ${mode === "login" ? "active" : ""}`} onClick={() => { setMode("login"); setErr(""); setMsg(""); }}>Sign in</button>
-            <button className={`tab-btn ${mode === "register" ? "active" : ""}`} onClick={() => { setMode("register"); setErr(""); setMsg(""); }}>Create account</button>
-          </div>
+        <div className="auth-tabs">
+          <button className={`auth-tab ${tab === "login" ? "active" : ""}`} onClick={() => { setTab("login"); setError(""); }}>Masuk</button>
+          <button className={`auth-tab ${tab === "register" ? "active" : ""}`} onClick={() => { setTab("register"); setError(""); }}>Daftar</button>
+        </div>
 
-          {err && <div className="alert alert-error">{err}</div>}
-          {msg && <div className="alert alert-success">{msg}</div>}
+        {error && <div className="auth-error">{error}</div>}
 
-          {mode === "register" && (
-            <div className="field">
-              <label>Username</label>
-              <div className="input-wrap">
-                <span className="input-icon"><UserIcon size={16} /></span>
-                <input value={username} onChange={e => setUsername(e.target.value)} placeholder="your_name" />
+        <div className="field-group">
+          {tab === "register" && (
+            <div>
+              <div className="field-label">Nama</div>
+              <div className="field-wrap">
+                <span className="field-icon"><UserIcon size={16} /></span>
+                <input className="field-input" placeholder="Nama lengkap" value={username} onChange={e => setUsername(e.target.value)} />
               </div>
             </div>
           )}
-
-          <div className="field">
-            <label>Email</label>
-            <div className="input-wrap">
-              <span className="input-icon"><MailIcon size={16} /></span>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
-            </div>
-          </div>
-
-          <div className="field">
-            <label>Password</label>
-            <div className="input-wrap">
-              <span className="input-icon"><LockIcon size={16} /></span>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+          <div>
+            <div className="field-label">Email</div>
+            <div className="field-wrap">
+              <span className="field-icon"><MailIcon size={16} /></span>
+              <input className="field-input" type="email" placeholder="email@contoh.com" value={email}
+                onChange={e => setEmail(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && submit()} />
             </div>
           </div>
-
-          <button className="btn btn-primary" onClick={submit} disabled={loading}>
-            {loading ? <span className="spinner" /> : null}
-            {mode === "login" ? (loading ? "Signing in…" : "Sign in") : (loading ? "Creating account…" : "Create account")}
-          </button>
+          <div>
+            <div className="field-label">Password</div>
+            <div className="field-wrap">
+              <span className="field-icon"><LockIcon size={16} /></span>
+              <input className="field-input" type="password" placeholder="••••••••" value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submit()} />
+            </div>
+          </div>
         </div>
+
+        <button className="btn-primary" onClick={submit} disabled={loading}>
+          {loading ? <span className="spinner" /> : null}
+          {tab === "login" ? "Masuk" : "Buat Akun"}
+        </button>
       </div>
-    </>
+    </div>
   );
 }
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 function MainApp({ user, onLogout }) {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [title, setTitle] = useState("");
-  const [desc, setDesc] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [filter, setFilter] = useState("all");
+  const [tasks,    setTasks]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [title,    setTitle]    = useState("");
+  const [desc,     setDesc]     = useState("");
+  const [dueDate,  setDueDate]  = useState("");
+  const [priority, setPriority] = useState("medium");
+  const [adding,   setAdding]   = useState(false);
+  const [filter,   setFilter]   = useState("all");
+  const [search,   setSearch]   = useState("");
+  const [sort,     setSort]     = useState("created_at");
+  const [order,    setOrder]    = useState("desc");
   const [editTask, setEditTask] = useState(null);
-  const [toast, setToast] = useState(null);
-  const toastTimer = useState(null);
+  const [toast,    setToast]    = useState(null);
+  const toastTimer = useRef(null);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -933,114 +805,112 @@ function MainApp({ user, onLogout }) {
 
   const loadTasks = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/tasks`, { headers: authHeader() });
+      const params = { sort, order };
+      if (filter !== "all") params.status = filter;
+      if (search.trim()) params.search = search.trim();
+      const { data } = await axios.get(`${API}/tasks`, { headers: authHdr(), params });
       setTasks(data);
     } catch {
-      showToast("Failed to load tasks.", "error");
+      showToast("Gagal memuat tasks.", "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filter, search, sort, order]);
 
-  useEffect(() => { loadTasks(); }, [loadTasks]);
+  // Debounce reload on search change
+  useEffect(() => {
+    const t = setTimeout(() => { loadTasks(); }, search ? 350 : 0);
+    return () => clearTimeout(t);
+  }, [loadTasks, search]);
 
   const addTask = async () => {
     if (!title.trim()) return;
     setAdding(true);
     try {
       const { data } = await axios.post(`${API}/tasks`,
-        { title: title.trim(), description: desc.trim() },
-        { headers: authHeader() }
+        { title: title.trim(), description: desc.trim(), due_date: dueDate || null, priority },
+        { headers: authHdr() }
       );
       setTasks(prev => [data, ...prev]);
-      setTitle(""); setDesc("");
-      showToast("Task added.");
+      setTitle(""); setDesc(""); setDueDate(""); setPriority("medium");
+      showToast("Task berhasil ditambahkan.");
     } catch {
-      showToast("Failed to add task.", "error");
+      showToast("Gagal menambah task.", "error");
     } finally {
       setAdding(false);
     }
   };
 
   const toggleTask = async (task) => {
-    const newStatus = task.status === "completed" ? "pending" : "completed";
     try {
-      await axios.put(`${API}/tasks/${task.id}`,
-        { ...task, status: newStatus },
-        { headers: authHeader() }
-      );
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
-      showToast(newStatus === "completed" ? "Marked complete!" : "Marked in progress.");
+      const { data } = await axios.patch(`${API}/tasks/${task.id}/toggle`, {}, { headers: authHdr() });
+      setTasks(prev => prev.map(t => t.id === task.id ? data : t));
+      showToast(data.status === "completed" ? "Task selesai! ✓" : "Ditandai in progress.");
     } catch {
-      showToast("Failed to update.", "error");
+      showToast("Gagal update status.", "error");
     }
   };
 
   const deleteTask = async (id) => {
+    if (!window.confirm("Hapus task ini?")) return;
     try {
-      await axios.delete(`${API}/tasks/${id}`, { headers: authHeader() });
+      await axios.delete(`${API}/tasks/${id}`, { headers: authHdr() });
       setTasks(prev => prev.filter(t => t.id !== id));
-      showToast("Task deleted.");
+      showToast("Task dihapus.");
     } catch {
-      showToast("Failed to delete.", "error");
+      showToast("Gagal menghapus task.", "error");
     }
   };
 
   const handleEditSave = (updated) => {
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
     setEditTask(null);
-    showToast("Task updated.");
+    showToast("Task berhasil diperbarui.");
   };
 
-  const filtered = tasks.filter(t =>
-    filter === "all" ? true :
-    filter === "pending" ? t.status === "pending" :
-    t.status === "completed"
-  );
-
-  const total = tasks.length;
-  const done = tasks.filter(t => t.status === "completed").length;
+  // Stats
+  const total   = tasks.length;
+  const done    = tasks.filter(t => t.status === "completed").length;
   const pending = total - done;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  const overdue = tasks.filter(t => t.status === "pending" && isOverdue(t.due_date?.split("T")[0])).length;
+  const pct     = total ? Math.round((done / total) * 100) : 0;
 
-  const formatDate = (s) => {
-    if (!s) return "";
-    return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
+  const toggleOrder = () => setOrder(o => o === "desc" ? "asc" : "desc");
 
   return (
     <>
       <GlobalStyles />
       <div className="app-layout">
-        {/* topbar */}
+        {/* Topbar */}
         <header className="topbar">
           <div className="topbar-logo">
-            <div className="topbar-logo-icon">
-              <TaskIcon size={16} color="#fff" />
-            </div>
+            <div className="topbar-logo-icon"><TaskIcon size={16} color="#fff" /></div>
             Taskly
           </div>
           <div className="topbar-right">
-            <span className="topbar-user">Hello, <strong>{user.username || user.email}</strong></span>
-            <button className="btn-icon" title="Sign out" onClick={onLogout}>
+            <span className="topbar-user">Halo, <strong>{user.username || user.email}</strong></span>
+            <button className="btn-icon" title="Keluar" onClick={onLogout}>
               <LogoutIcon size={18} />
             </button>
           </div>
         </header>
 
-        {/* main */}
+        {/* Main */}
         <main className="main-content">
+          {/* Page header */}
           <div className="page-header">
             <h1 className="page-title">My Tasks</h1>
-            <p className="page-subtitle">{total === 0 ? "No tasks yet. Add one below." : `${done} of ${total} completed — ${pct}%`}</p>
+            <p className="page-subtitle">
+              {total === 0 ? "Belum ada task. Tambahkan di bawah." : `${done} dari ${total} selesai — ${pct}%`}
+            </p>
             {total > 0 && (
-              <div className="progress-wrap" style={{marginTop:10}}>
-                <div className="progress-bar" style={{width:`${pct}%`}} />
+              <div className="progress-wrap" style={{ marginTop: 10 }}>
+                <div className="progress-bar" style={{ width: `${pct}%` }} />
               </div>
             )}
           </div>
 
-          {/* stats */}
+          {/* Stats */}
           <div className="stats-row">
             <div className="stat-card">
               <div className="stat-number total">{total}</div>
@@ -1048,131 +918,177 @@ function MainApp({ user, onLogout }) {
             </div>
             <div className="stat-card">
               <div className="stat-number done">{done}</div>
-              <div className="stat-label">Done</div>
+              <div className="stat-label">Selesai</div>
             </div>
             <div className="stat-card">
               <div className="stat-number todo">{pending}</div>
               <div className="stat-label">Pending</div>
             </div>
+            <div className="stat-card">
+              <div className="stat-number overdue">{overdue}</div>
+              <div className="stat-label">Terlambat</div>
+            </div>
           </div>
 
-          {/* add form */}
+          {/* Add form */}
           <div className="add-form">
             <div className="add-form-row">
               <input
                 className="task-input"
-                placeholder="Add a new task…"
+                placeholder="Tambah task baru…"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && !e.shiftKey && addTask()}
               />
-              <button className="btn btn-primary" onClick={addTask} disabled={adding || !title.trim()} style={{width:"auto"}}>
-                {adding ? <span className="spinner" /> : <PlusIcon size={18} />}
-                Add
+              <button className="btn btn-accent" onClick={addTask} disabled={adding || !title.trim()}>
+                {adding ? <span className="spinner" /> : <PlusIcon size={16} />}
+                Tambah
               </button>
             </div>
             <textarea
               className="task-input-desc"
-              placeholder="Optional description…"
+              placeholder="Deskripsi (opsional)…"
               value={desc}
               onChange={e => setDesc(e.target.value)}
               rows={2}
             />
+            <div className="add-extras">
+              <div className="extra-field">
+                <span className="extra-label">Prioritas</span>
+                <select className="extra-select" value={priority} onChange={e => setPriority(e.target.value)}>
+                  <option value="high">🔴 Tinggi</option>
+                  <option value="medium">🟡 Sedang</option>
+                  <option value="low">🟢 Rendah</option>
+                </select>
+              </div>
+              <div className="extra-field">
+                <span className="extra-label">Tenggat Waktu</span>
+                <input
+                  type="date"
+                  className="extra-input"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  style={{ colorScheme: "dark" }}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* filters */}
+          {/* Toolbar: search + sort */}
+          <div className="toolbar">
+            <div className="search-wrap">
+              <span className="search-icon"><SearchIcon size={15} /></span>
+              <input
+                className="search-input"
+                placeholder="Cari task…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <select className="sort-select" value={sort} onChange={e => setSort(e.target.value)}>
+              <option value="created_at">Tanggal Dibuat</option>
+              <option value="due_date">Tenggat</option>
+              <option value="priority">Prioritas</option>
+              <option value="title">Judul (A-Z)</option>
+              <option value="status">Status</option>
+            </select>
+            <button className="order-btn" onClick={toggleOrder}>
+              {order === "desc" ? "↓ Terbaru" : "↑ Terlama"}
+            </button>
+          </div>
+
+          {/* Filters */}
           <div className="filter-row">
-            {["all","pending","completed"].map(f => (
+            {[
+              { key: "all",       label: "Semua",      count: total   },
+              { key: "pending",   label: "In Progress", count: pending },
+              { key: "completed", label: "Selesai",     count: done    },
+            ].map(f => (
               <button
-                key={f}
-                className={`filter-btn ${filter === f ? "active" : ""}`}
-                onClick={() => setFilter(f)}
+                key={f.key}
+                className={`filter-btn ${filter === f.key ? "active" : ""}`}
+                onClick={() => setFilter(f.key)}
               >
-                {f === "all" ? "All" : f === "pending" ? "In Progress" : "Completed"}
-                {" "}
-                <span style={{opacity:.7}}>
-                  ({f === "all" ? total : f === "pending" ? pending : done})
-                </span>
+                {f.label} <span style={{ opacity: .7 }}>({f.count})</span>
               </button>
             ))}
           </div>
 
-          {/* list */}
+          {/* Task list */}
           {loading ? (
-            <div style={{textAlign:"center",padding:"60px 0",color:"var(--muted)"}}>
-              <span className="spinner" style={{borderColor:"var(--border)",borderTopColor:"var(--accent)"}} />
+            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--muted)" }}>
+              <span className="spinner" style={{ borderTopColor: "var(--accent)", borderColor: "var(--border)" }} />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : tasks.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon-wrap">
                 <EmptyIcon size={28} color="var(--muted)" />
               </div>
-              <div className="empty-title">No tasks here</div>
+              <div className="empty-title">
+                {search ? "Tidak ditemukan" : "Belum ada task"}
+              </div>
               <div className="empty-text">
-                {filter === "all" ? "Add your first task above." : `No ${filter === "pending" ? "in-progress" : "completed"} tasks.`}
+                {search
+                  ? `Tidak ada task yang cocok dengan "${search}"`
+                  : filter === "all" ? "Tambahkan task pertamamu di atas." : `Tidak ada task ${filter === "pending" ? "in progress" : "selesai"}.`}
               </div>
             </div>
           ) : (
             <div className="task-list">
-              {filtered.map(task => (
-                <div key={task.id} className={`task-card ${task.status === "completed" ? "done" : ""}`}>
-                  {/* check circle */}
-                  <button
-                    className={`task-check ${task.status === "completed" ? "checked" : ""}`}
-                    onClick={() => toggleTask(task)}
-                    title={task.status === "completed" ? "Mark pending" : "Mark complete"}
+              {tasks.map(task => {
+                const due = task.due_date ? task.due_date.split("T")[0] : null;
+                return (
+                  <div
+                    key={task.id}
+                    className={`task-card ${task.status === "completed" ? "done" : ""} priority-${task.priority || "medium"}`}
                   >
-                    {task.status === "completed" && <CheckIcon size={12} color="#fff" />}
-                  </button>
+                    {/* Toggle check */}
+                    <button
+                      className={`task-check ${task.status === "completed" ? "checked" : ""}`}
+                      onClick={() => toggleTask(task)}
+                      title={task.status === "completed" ? "Tandai pending" : "Tandai selesai"}
+                    >
+                      {task.status === "completed" && <CheckIcon size={12} color="#fff" />}
+                    </button>
 
-                  <div className="task-body">
-                    <div className="task-title">{task.title}</div>
-                    {task.description && (
-                      <div className="task-desc">{task.description}</div>
-                    )}
-                    <div className="task-meta">
-                      <span className={`task-badge ${task.status === "completed" ? "done" : "pending"}`}>
-                        {task.status === "completed" ? "Done" : "In Progress"}
-                      </span>
-                      {task.created_at && (
-                        <span className="task-date">{formatDate(task.created_at)}</span>
+                    <div className="task-body">
+                      <div className="task-title">{task.title}</div>
+                      {task.description && (
+                        <div className="task-desc">{task.description}</div>
                       )}
+                      <div className="task-meta">
+                        <span className={`task-badge ${task.status === "completed" ? "done" : "pending"}`}>
+                          {task.status === "completed" ? "Selesai" : "In Progress"}
+                        </span>
+                        <PriorityBadge priority={task.priority} />
+                        {due && <DueBadge due={due} />}
+                        {task.created_at && (
+                          <span className="task-date">
+                            {new Date(task.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="task-actions">
+                      <button className="btn-icon edit" title="Edit" onClick={() => setEditTask(task)}>
+                        <EditIcon size={16} />
+                      </button>
+                      <button className="btn-icon danger" title="Hapus" onClick={() => deleteTask(task.id)}>
+                        <TrashIcon size={16} />
+                      </button>
                     </div>
                   </div>
-
-                  <div className="task-actions">
-                    <button
-                      className="btn-icon edit"
-                      title="Edit task"
-                      onClick={() => setEditTask(task)}
-                    >
-                      <EditIcon size={16} />
-                    </button>
-                    <button
-                      className="btn-icon danger"
-                      title="Delete task"
-                      onClick={() => deleteTask(task.id)}
-                    >
-                      <TrashIcon size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </main>
       </div>
 
-      {/* Edit Modal */}
       {editTask && (
-        <EditModal
-          task={editTask}
-          onClose={() => setEditTask(null)}
-          onSave={handleEditSave}
-        />
+        <EditModal task={editTask} onClose={() => setEditTask(null)} onSave={handleEditSave} />
       )}
-
-      {/* Toast */}
       {toast && <Toast msg={toast.msg} type={toast.type} />}
     </>
   );
@@ -1180,13 +1096,12 @@ function MainApp({ user, onLogout }) {
 
 // ─── ROOT ────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user,     setUser]     = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (t) {
-      // verify token
       axios.get(`${API}/auth/me`, { headers: { Authorization: `Bearer ${t}` } })
         .then(({ data }) => setUser(data))
         .catch(() => localStorage.removeItem("token"))
@@ -1203,15 +1118,18 @@ export default function App() {
 
   if (checking) {
     return (
-      <>
+      <div style={{
+        minHeight: "100vh", display: "flex",
+        alignItems: "center", justifyContent: "center",
+        background: "#0f1117",
+      }}>
         <GlobalStyles />
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)"}}>
-          <span className="spinner" style={{width:32,height:32,borderColor:"var(--border)",borderTopColor:"var(--accent)"}} />
-        </div>
-      </>
+        <span className="spinner" style={{ width: 32, height: 32, borderTopColor: "#6366f1", borderColor: "#2e3247" }} />
+      </div>
     );
   }
 
-  if (!user) return <AuthPage onLogin={setUser} />;
-  return <MainApp user={user} onLogout={handleLogout} />;
+  return user
+    ? <MainApp user={user} onLogout={handleLogout} />
+    : <AuthPage onLogin={setUser} />;
 }
