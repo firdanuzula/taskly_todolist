@@ -24,13 +24,17 @@ Taskly adalah aplikasi full-stack untuk manajemen tugas pribadi. Pengguna bisa m
 ## ✨ Fitur
 
 - 🔐 **Autentikasi** — Register & login dengan enkripsi password (bcrypt) + JWT
-- ➕ **Tambah tugas** — Dengan judul dan deskripsi opsional
-- ✏️ **Edit tugas** — Ubah judul, deskripsi, dan status lewat modal
-- ✅ **Toggle status** — Tandai tugas selesai atau kembalikan ke in-progress
-- 🗑️ **Hapus tugas** — Hapus tugas yang tidak diperlukan
-- 📊 **Dashboard statistik** — Jumlah total, selesai, dan pending
+- ➕ **Tambah tugas** — Dengan judul, deskripsi opsional, prioritas, dan tenggat waktu
+- ✏️ **Edit tugas** — Ubah judul, deskripsi, status, prioritas, dan tenggat lewat modal
+- ✅ **Toggle status** — Tandai tugas selesai atau kembalikan ke in-progress (endpoint khusus)
+- 🗑️ **Hapus tugas** — Hapus tugas yang tidak diperlukan (dengan konfirmasi)
+- 🚩 **Prioritas tugas** — Tinggi / Sedang / Rendah dengan warna pembeda di tiap kartu
+- 📅 **Tenggat waktu** — Badge otomatis: biru (normal), kuning (hari ini), merah (terlambat)
+- 🔍 **Pencarian** — Cari tugas berdasarkan judul atau deskripsi secara real-time
+- ↕️ **Sorting** — Urutkan berdasarkan tanggal dibuat, tenggat, prioritas, judul, atau status
+- 📊 **Dashboard statistik** — Total, selesai, pending, dan jumlah tugas terlambat
 - 📈 **Progress bar** — Visualisasi persentase tugas yang diselesaikan
-- 🔍 **Filter tugas** — Tampilkan semua / in-progress / completed
+- 🔎 **Filter tugas** — Tampilkan semua / in-progress / completed
 - 🔔 **Toast notifikasi** — Feedback untuk setiap aksi
 - 💾 **Sesi persisten** — Tetap login setelah refresh halaman
 
@@ -42,7 +46,7 @@ Taskly adalah aplikasi full-stack untuk manajemen tugas pribadi. Pengguna bisa m
 |------------|----------------------------------|
 | Frontend   | React 18, Vite, Axios            |
 | Backend    | Node.js, Express.js              |
-| Database   | MySQL 8                          |
+| Database   | MySQL 8 / MariaDB                |
 | Auth       | JWT (jsonwebtoken), bcryptjs     |
 | Dev Tools  | Nodemon, dotenv                  |
 
@@ -51,7 +55,7 @@ Taskly adalah aplikasi full-stack untuk manajemen tugas pribadi. Pengguna bisa m
 ## 📁 Struktur Proyek
 
 ```
-todo-improved/
+taskly/
 ├── client/                   # Frontend (React + Vite)
 │   ├── index.html
 │   ├── vite.config.js
@@ -73,7 +77,8 @@ todo-improved/
 │       ├── authRoutes.js
 │       └── taskRoutes.js
 │
-├── schema.sql                # Script setup database
+├── todo_db.sql                    # Script setup database awal
+├── migration_add_features.sql     # Migrasi: tambah due_date & priority
 └── README.md
 ```
 
@@ -84,7 +89,7 @@ todo-improved/
 ### Prasyarat
 
 - Node.js v18+
-- MySQL 8.0+
+- MySQL 8.0+ / MariaDB 10.4+
 - npm
 
 ---
@@ -98,13 +103,27 @@ cd taskly
 
 ### 2. Setup Database
 
-Buka terminal MySQL atau MySQL Workbench, lalu jalankan:
+Jalankan script database utama:
 
 ```bash
 mysql -u root -p < todo_db.sql
 ```
 
-Atau buka file `todo_db.sql` dan jalankan isinya di MySQL Workbench / phpMyAdmin.
+Atau buka file `todo_db.sql` di phpMyAdmin dan jalankan isinya.
+
+**Jika sudah punya database lama**, jalankan migrasi tambahan untuk fitur baru:
+
+```bash
+mysql -u root -p todo_db < migration_add_features.sql
+```
+
+Atau jalankan query berikut langsung di phpMyAdmin:
+
+```sql
+ALTER TABLE tasks
+  ADD COLUMN due_date DATE DEFAULT NULL AFTER status,
+  ADD COLUMN priority ENUM('low','medium','high') DEFAULT 'medium' AFTER due_date;
+```
 
 ### 3. Setup Server (Backend)
 
@@ -114,7 +133,7 @@ npm install
 cp .env.example .env
 ```
 
-Edit file `.env` sesuai konfigurasi lokal kamu:
+Edit file `.env` sesuai konfigurasi lokal:
 
 ```env
 DB_HOST=localhost
@@ -152,25 +171,37 @@ Base URL: `http://localhost:5000/api`
 
 ### Auth
 
-| Method | Endpoint          | Auth | Deskripsi                     |
-|--------|-------------------|:----:|-------------------------------|
-| POST   | `/auth/register`  | ❌   | Daftar akun baru              |
-| POST   | `/auth/login`     | ❌   | Login, mendapat JWT token     |
-| GET    | `/auth/me`        | ✅   | Ambil data user dari token    |
+| Method | Endpoint         | Auth | Deskripsi                     |
+|--------|------------------|:----:|-------------------------------|
+| POST   | `/auth/register` | ❌   | Daftar akun baru              |
+| POST   | `/auth/login`    | ❌   | Login, mendapat JWT token     |
+| GET    | `/auth/me`       | ✅   | Ambil data user dari token    |
 
 ### Tasks
 
-| Method | Endpoint          | Auth | Deskripsi                     |
-|--------|-------------------|:----:|-------------------------------|
-| GET    | `/tasks`          | ✅   | Ambil semua tugas milik user  |
-| POST   | `/tasks`          | ✅   | Buat tugas baru               |
-| PUT    | `/tasks/:id`      | ✅   | Edit tugas (judul/deskripsi/status) |
-| DELETE | `/tasks/:id`      | ✅   | Hapus tugas                   |
+| Method | Endpoint              | Auth | Deskripsi                                  |
+|--------|-----------------------|:----:|--------------------------------------------|
+| GET    | `/tasks`              | ✅   | Ambil semua tugas (support query params)   |
+| POST   | `/tasks`              | ✅   | Buat tugas baru                            |
+| PUT    | `/tasks/:id`          | ✅   | Edit tugas (judul/deskripsi/status/prioritas/tenggat) |
+| PATCH  | `/tasks/:id/toggle`   | ✅   | Toggle status pending ↔ completed          |
+| DELETE | `/tasks/:id`          | ✅   | Hapus tugas                                |
 
 > Header yang dibutuhkan untuk endpoint dengan Auth:
 > ```
 > Authorization: Bearer <token>
 > ```
+
+#### Query Params — GET `/tasks`
+
+| Param    | Nilai yang valid                                       | Default       |
+|----------|--------------------------------------------------------|---------------|
+| `sort`   | `created_at`, `due_date`, `priority`, `title`, `status` | `created_at`  |
+| `order`  | `asc`, `desc`                                          | `desc`        |
+| `status` | `pending`, `completed`                                 | —             |
+| `search` | string bebas                                           | —             |
+
+Contoh: `GET /tasks?sort=priority&order=desc&search=laporan`
 
 ---
 
@@ -180,19 +211,22 @@ Base URL: `http://localhost:5000/api`
 -- Tabel users
 CREATE TABLE users (
   id         INT PRIMARY KEY AUTO_INCREMENT,
-  username   VARCHAR(100) NOT NULL,
-  email      VARCHAR(255) NOT NULL UNIQUE,
-  password   VARCHAR(255) NOT NULL,
+  nama       VARCHAR(100),
+  email      VARCHAR(100) UNIQUE,
+  password   VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Tabel tasks
 CREATE TABLE tasks (
   id          INT PRIMARY KEY AUTO_INCREMENT,
-  user_id     INT NOT NULL,
-  title       VARCHAR(500) NOT NULL,
+  user_id     INT,
+  title       VARCHAR(255),
   description TEXT,
   status      ENUM('pending', 'completed') DEFAULT 'pending',
+  due_date    DATE DEFAULT NULL,
+  priority    ENUM('low', 'medium', 'high') DEFAULT 'medium',
+  attachment  VARCHAR(255),
   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
