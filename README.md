@@ -111,20 +111,6 @@ mysql -u root -p < todo_db.sql
 
 Atau buka file `todo_db.sql` di phpMyAdmin dan jalankan isinya.
 
-**Jika sudah punya database lama**, jalankan migrasi tambahan untuk fitur baru:
-
-```bash
-mysql -u root -p todo_db < migration_add_features.sql
-```
-
-Atau jalankan query berikut langsung di phpMyAdmin:
-
-```sql
-ALTER TABLE tasks
-  ADD COLUMN due_date DATE DEFAULT NULL AFTER status,
-  ADD COLUMN priority ENUM('low','medium','high') DEFAULT 'medium' AFTER due_date;
-```
-
 ### 3. Setup Server (Backend)
 
 ```bash
